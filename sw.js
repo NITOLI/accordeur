@@ -2,7 +2,7 @@
 // Stratégie « stale-while-revalidate » : réponse immédiate depuis le cache,
 // mise à jour silencieuse en arrière-plan pour la prochaine ouverture.
 
-const CACHE = 'accordeur-v1';
+const CACHE = 'accordeur-v2';
 
 const ASSETS = [
   './',
