@@ -53,7 +53,7 @@ caisse, dans un endroit calme. Fais un accord après coup pour vérifier à l'or
 | `js/tunings.js` | les accordages |
 | `js/app.js` | interface : cadran, cordes, réglages |
 | `sw.js` | service worker (cache-first, mise à jour en arrière-plan) |
-| `tools/make-icons.mjs` | génère les icônes PNG (rasteriseur maison, sans dépendance) |
+| `tools/make-icons.mjs` | la marque : une seule description géométrique produit `favicon.svg` et les PNG (rasteriseur maison, sans dépendance) |
 
 La détection utilise la **méthode McLeod (MPM)** : fonction de différence
 normalisée (NSDF), choix du premier pic significatif — c'est ce qui évite les erreurs
