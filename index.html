@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Accordeur — accordeur de guitare</title>
+<meta name="description" content="Accordeur de guitare chromatique, sans publicité, fonctionne hors-ligne.">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Accordeur">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <button id="tuningBtn" class="pill" type="button" aria-haspopup="dialog">
+      <span class="pill-kicker">Accordage</span>
+      <span class="pill-value" id="tuningName">Standard</span>
+    </button>
+    <div class="topbar-right">
+      <button id="toneBtn" class="icon-btn" type="button" aria-pressed="false" title="Note de référence" aria-label="Jouer la note de référence">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-4h3l4-3.5v11L7 14H4z"/><path class="wave" d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.6a7.6 7.6 0 0 1 0 10.8"/></svg>
+      </button>
+      <button id="settingsBtn" class="icon-btn" type="button" title="Réglages" aria-label="Réglages">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h9M17 8h3M4 16h4M12 16h8"/><circle cx="15" cy="8" r="2.3"/><circle cx="10" cy="16" r="2.3"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="gauge" id="gauge">
+      <svg viewBox="0 0 320 170" aria-hidden="true">
+        <g id="gaugeTicks"></g>
+        <path id="gaugeGreen" class="gauge-green" d=""></path>
+        <g id="needle" class="needle">
+          <line x1="160" y1="76" x2="160" y2="54"></line>
+          <polygon points="160,44 165,58 155,58"></polygon>
+        </g>
+      </svg>
+      <div class="readout">
+        <div class="note" id="noteName" aria-live="off">–</div>
+        <div class="cents" id="centsText">Joue une corde</div>
+      </div>
+    </div>
+
+    <p class="freq" id="freqText">&nbsp;</p>
+    <p class="target" id="targetText">&nbsp;</p>
+
+    <div class="advice"><p id="adviceText">Active le micro pour commencer.</p></div>
+  </main>
+
+  <section class="strings" id="strings" aria-label="Cordes"></section>
+
+  <footer class="bottombar">
+    <button id="modeBtn" class="mode-btn" type="button" aria-pressed="true">
+      <span class="dot"></span><span id="modeLabel">Auto</span>
+    </button>
+    <button id="micBtn" class="mic-btn" type="button">Activer le micro</button>
+  </footer>
+</div>
+
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="gate-logo" aria-hidden="true">
+      <svg viewBox="0 0 64 64"><path d="M22 8v22a10 10 0 0 0 20 0V8" /><path d="M32 40v16"/><circle cx="32" cy="58" r="4"/></svg>
+    </div>
+    <h1>Accordeur</h1>
+    <p>Accordeur de guitare chromatique. Pas de pub, pas de compte, fonctionne hors-ligne.</p>
+    <button id="gateBtn" class="mic-btn" type="button">Autoriser le micro</button>
+    <p class="gate-note" id="gateNote">Le son du micro est analysé sur l’appareil et n’est jamais envoyé nulle part.</p>
+  </div>
+</div>
+
+<dialog id="settingsDlg" class="sheet">
+  <form method="dialog">
+    <header class="sheet-head">
+      <h2>Réglages</h2>
+      <button class="sheet-close" value="close" aria-label="Fermer">&times;</button>
+    </header>
+
+    <fieldset class="sheet-block">
+      <legend>Accordage</legend>
+      <div class="tuning-list" id="tuningList"></div>
+    </fieldset>
+
+    <fieldset class="sheet-block">
+      <legend>Diapason (La de référence)</legend>
+      <div class="a4-row">
+        <button type="button" class="step" id="a4Minus" aria-label="Diminuer">–</button>
+        <output id="a4Value">440 Hz</output>
+        <button type="button" class="step" id="a4Plus" aria-label="Augmenter">+</button>
+      </div>
+      <input type="range" id="a4Range" min="415" max="465" step="1" value="440">
+    </fieldset>
+
+    <fieldset class="sheet-block">
+      <legend>Précision</legend>
+      <label class="row-check">
+        <input type="checkbox" id="strictChk">
+        <span>Mode strict (&plusmn;2 cents au lieu de &plusmn;5)</span>
+      </label>
+      <label class="row-check">
+        <input type="checkbox" id="hapticChk" checked>
+        <span>Vibrer quand la corde est juste</span>
+      </label>
+    </fieldset>
+
+    <p class="sheet-foot">Astuce : joue une seule corde à la fois, à mi-manche de la caisse, dans un endroit calme.</p>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

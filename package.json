@@ -1,0 +1,13 @@
+{
+  "name": "accordeur",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Accordeur de guitare PWA, sans publicité, hors-ligne.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8099 --bind 127.0.0.1",
+    "test": "node tests/pitch.test.mjs",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "license": "MIT"
+}
