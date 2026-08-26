@@ -32,12 +32,20 @@ function saveSettings() {
 
 /* ------------------------------------------------------------------- états */
 
-const HISTORY = 5;              // trames lissées ensemble
-const SILENCE_FRAMES = 7;       // ~315 ms sans note -> retour au repos
-const HOLD_TUNED_MS = 350;      // durée dans la zone juste pour valider
+// Une trame d'analyse dure 50 ms. Ces valeurs règlent la nervosité de
+// l'affichage : assez lent pour que l'aiguille ne tremble pas, assez vif pour
+// suivre la mécanique qu'on tourne.
+const HISTORY = 7;              // 350 ms de trames lissées ensemble
+const SILENCE_FRAMES = 11;      // ~550 ms sans note -> retour au repos
+const HOLD_TUNED_MS = 400;      // durée dans la zone juste pour valider
 const HOLD_UNTUNED_MS = 700;    // durée hors zone pour invalider
-const SWITCH_FRAMES = 3;        // trames avant de changer de corde en auto
+const SWITCH_FRAMES = 6;        // ~300 ms avant de changer de corde en auto
 const CLARITY_TUNED = 0.7;      // périodicité minimale pour valider une corde
+const CLARITY_SHOW = 0.72;      // en dessous, on garde l'affichage précédent
+                                // plutôt que de suivre une mesure douteuse
+const EASE_FAR = 0.4;           // suivi rapide quand on est loin du juste
+const EASE_NEAR = 0.14;         // ~360 ms de constante de temps près du juste
+const EASE_SPAN = 10;           // écart, en cents, à partir duquel on suit à fond
 
 const state = {
   strings: [],
@@ -69,7 +77,6 @@ const el = {
   tuningName: document.getElementById('tuningName'),
   tuningBtn: document.getElementById('tuningBtn'),
   tuningList: document.getElementById('tuningList'),
-  settingsBtn: document.getElementById('settingsBtn'),
   settingsDlg: document.getElementById('settingsDlg'),
   a4Value: document.getElementById('a4Value'),
   a4Range: document.getElementById('a4Range'),
@@ -237,10 +244,18 @@ function renderTargetLine() {
   el.target.textContent = `Corde ${s.number} · ${name}${octave} · ${targetFreq().toFixed(2)} Hz (${mode})`;
 }
 
+// Zone morte : sous un quart de degré, on ne redessine pas. Ce résidu-là ne
+// dit rien de la corde, il ne fait que trembler.
+const NEEDLE_DEADBAND = 0.25;
+let needleAngle = null;
+
 function setNeedle(cents, cls) {
   const clamped = Math.max(-MAX_CENTS, Math.min(MAX_CENTS, cents));
   const angle = (clamped / MAX_CENTS) * MAX_ANGLE;
-  el.needle.setAttribute('transform', `rotate(${angle.toFixed(2)} ${CENTER.x} ${CENTER.y})`);
+  if (needleAngle === null || Math.abs(angle - needleAngle) >= NEEDLE_DEADBAND) {
+    needleAngle = angle;
+    el.needle.setAttribute('transform', `rotate(${angle.toFixed(2)} ${CENTER.x} ${CENTER.y})`);
+  }
   el.gauge.className = `gauge ${cls}`;
 }
 
@@ -254,9 +269,9 @@ function renderIdle() {
   const s = state.strings[state.targetIndex];
   const { name, octave } = midiToNote(s.midi);
   el.note.innerHTML = `${name}<sub>${octave}</sub>`;
-  el.cents.textContent = tuner.isRunning() ? 'Joue une corde' : 'Micro en pause';
+  el.cents.textContent = tuner.isMicOn() ? 'Joue une corde' : 'Micro en pause';
   el.freq.innerHTML = '&nbsp;';
-  if (!tuner.isRunning()) {
+  if (!tuner.isMicOn()) {
     setAdvice('Active le micro pour commencer.');
   } else if (state.tuned.size === state.strings.length) {
     setAdvice('Les six cordes sont justes. Vérifie avec un accord.', true);
@@ -264,6 +279,17 @@ function renderIdle() {
     const next = nextStringNumber();
     setAdvice(`Joue la <b>corde ${next}</b> à vide, une seule à la fois.`);
   }
+}
+
+/** Pendant la note de référence : le micro est fermé, on écoute. */
+function renderListening() {
+  const s = state.strings[state.targetIndex];
+  const { name, octave } = midiToNote(s.midi);
+  setNeedle(0, 'is-idle');
+  el.note.innerHTML = `${name}<sub>${octave}</sub>`;
+  el.cents.textContent = 'Écoute la note';
+  el.freq.textContent = `${targetFreq().toFixed(1)} Hz — micro en pause`;
+  setAdvice(`Compare à l'oreille, puis coupe le son pour accorder la <b>corde ${s.number}</b>.`);
 }
 
 function render(freq, cents, clarity) {
@@ -283,7 +309,8 @@ function render(freq, cents, clarity) {
     el.cents.textContent = '▲ beaucoup trop haut';
   } else {
     const arrow = cents < 0 ? '▼ trop bas' : '▲ trop haut';
-    el.cents.textContent = `${arrow} · ${cents > 0 ? '+' : ''}${cents.toFixed(1)} cents`;
+    const round = Math.round(cents);
+    el.cents.textContent = `${arrow} · ${round > 0 ? '+' : ''}${round} cents`;
   }
 
   const [advice, ok] = adviceFor(cents);
@@ -291,7 +318,7 @@ function render(freq, cents, clarity) {
 
   const heard = nearestNote(freq, settings.a4);
   const heardNote = midiToNote(heard.midi);
-  el.freq.textContent = `${freq.toFixed(2)} Hz — entendu : ${heardNote.name}${heardNote.octave}`;
+  el.freq.textContent = `${freq.toFixed(1)} Hz — entendu : ${heardNote.name}${heardNote.octave}`;
 }
 
 /* ---------------------------------------------------------------- logique */
@@ -377,7 +404,9 @@ function unmarkTuned(index) {
 function onFrame({ freq, clarity }) {
   const now = performance.now();
 
-  if (!freq) {
+  // Trame muette, ou périodicité trop faible pour être crue : on ne bouge pas.
+  // C'est le cas dans la queue d'une note, quand le bruit prend le dessus.
+  if (!freq || clarity < CLARITY_SHOW) {
     if (++state.silence >= SILENCE_FRAMES && !state.idle) renderIdle();
     return;
   }
@@ -391,8 +420,12 @@ function onFrame({ freq, clarity }) {
   if (settings.auto) pickString(smooth);
 
   const rawCents = centsBetween(smooth, targetFreq());
-  // Lissage adaptatif : réactif quand on est loin, stable quand on est près.
-  const alpha = Math.abs(rawCents - state.displayCents) > 25 ? 0.6 : 0.28;
+  // Lissage adaptatif : la vitesse de suivi croît avec le carré de l'écart.
+  // Tourner une mécanique est suivi tout de suite ; le tremblement de quelques
+  // cents autour de la note, lui, reste amorti.
+  const err = Math.abs(rawCents - state.displayCents);
+  const ramp = Math.min(1, err / EASE_SPAN) ** 2;
+  const alpha = EASE_NEAR + (EASE_FAR - EASE_NEAR) * ramp;
   state.displayCents += (rawCents - state.displayCents) * alpha;
   const cents = state.displayCents;
 
@@ -475,22 +508,28 @@ function toast(message) {
 /* ------------------------------------------------------------- évènements */
 
 el.gateBtn.addEventListener('click', startMic);
-el.micBtn.addEventListener('click', () => (tuner.isRunning() ? stopMic() : startMic()));
+el.micBtn.addEventListener('click', () => (tuner.isMicOn() ? stopMic() : startMic()));
 el.modeBtn.addEventListener('click', () => setMode(!settings.auto));
 
-el.toneBtn.addEventListener('click', () => {
-  if (tuner.isTonePlaying()) {
-    tuner.stopTone();
-    el.toneBtn.setAttribute('aria-pressed', 'false');
-  } else {
-    tuner.playTone(targetFreq());
-    el.toneBtn.setAttribute('aria-pressed', 'true');
-    const s = state.strings[state.targetIndex];
-    toast(`Note de référence : corde ${s.number}`);
+el.toneBtn.addEventListener('click', async () => {
+  el.toneBtn.disabled = true;
+  try {
+    if (tuner.isTonePlaying()) {
+      await tuner.stopTone();
+      el.toneBtn.setAttribute('aria-pressed', 'false');
+      resetDetection();
+    } else {
+      await tuner.playTone(targetFreq());
+      el.toneBtn.setAttribute('aria-pressed', 'true');
+      renderListening();
+    }
+  } catch (err) {
+    toast(`Son indisponible : ${err.message}`);
+  } finally {
+    el.toneBtn.disabled = false;
   }
 });
 
-el.settingsBtn.addEventListener('click', () => el.settingsDlg.showModal());
 el.tuningBtn.addEventListener('click', () => el.settingsDlg.showModal());
 
 function setA4(value) {
@@ -524,7 +563,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     tuner.stopTone();
     el.toneBtn.setAttribute('aria-pressed', 'false');
-  } else if (tuner.isRunning() && !wakeLock) {
+  } else if (tuner.isMicOn() && !wakeLock) {
     requestWakeLock();
   }
 });

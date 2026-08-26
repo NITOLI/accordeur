@@ -63,7 +63,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ---------- Barre du haut ---------- */
 
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.topbar-right { display: flex; gap: 8px; }
 
 .pill {
   display: flex;
@@ -76,7 +75,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-soft);
 }
 .pill-kicker { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.pill-value { font-size: 14px; font-weight: 600; }
+.pill-value { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; }
+.chev { width: 11px; height: 8px; fill: none; stroke: var(--muted); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 .icon-btn {
   width: 44px; height: 44px;
@@ -106,7 +106,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .needle line { stroke: var(--text); stroke-width: 4.5; stroke-linecap: round; }
 .needle polygon { fill: var(--text); }
-.needle { transition: transform .1s cubic-bezier(.2,.7,.3,1); }
+.needle { transition: transform .16s cubic-bezier(.25,.8,.3,1); }
 
 .gauge.is-low .needle line, .gauge.is-low .needle polygon { stroke: var(--flat); fill: var(--flat); }
 .gauge.is-high .needle line, .gauge.is-high .needle polygon { stroke: var(--sharp); fill: var(--sharp); }
