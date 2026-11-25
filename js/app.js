@@ -40,7 +40,7 @@ function saveSettings() {
 const HOLD_TUNED_MS = 400;      // durée dans la zone juste pour valider
 const HOLD_UNTUNED_MS = 700;    // durée hors zone pour invalider
 const SWITCH_FRAMES = 6;        // ~300 ms avant de changer de corde en auto
-const CLARITY_TUNED = 0.7;      // périodicité minimale pour valider une corde
+const CLARITY_TUNED = 0.8;      // périodicité minimale pour valider une corde (> CLARITY_SHOW)
 const CLARITY_SHOW = 0.72;      // en dessous, on garde l'affichage précédent
                                 // plutôt que de suivre une mesure douteuse
 const EASE_SPAN = 10;           // écart, en cents, à partir duquel on suit à fond
@@ -112,6 +112,7 @@ const el = {
   toneBtn: document.getElementById('toneBtn'),
   gate: document.getElementById('gate'),
   gateBtn: document.getElementById('gateBtn'),
+  gateSkip: document.getElementById('gateSkip'),
   gateNote: document.getElementById('gateNote'),
   toast: document.getElementById('toast'),
   // métronome
@@ -223,7 +224,14 @@ function buildTuningList() {
       saveSettings();
       buildStrings();
       buildTuningList();
-      resetDetection();
+      if (tuner.isTonePlaying()) {
+        // La note de référence suit la corde visée : sinon on accorderait à
+        // l'oreille sur l'ancienne hauteur.
+        tuner.playTone(targetFreq());
+        renderListening();
+      } else {
+        resetDetection();
+      }
       toast(`Accordage : ${t.name}`);
     });
     frag.appendChild(btn);
@@ -243,14 +251,6 @@ function buildResponsePicker() {
       settings.response = id;
       saveSettings();
       buildResponsePicker();
-// une seule source pour les bornes : le moteur
-el.bpmRange.min = String(MIN_BPM);
-el.bpmRange.max = String(MAX_BPM);
-metronome.setTempo(settings.bpm);
-metronome.setBeatsPerBar(settings.beatsPerBar);
-buildSignatures();
-buildBeats();
-renderTempo();
       state.history.length = 0;
       toast(`Réactivité : ${preset.label.toLowerCase()}`);
     });
@@ -521,29 +521,60 @@ function onFrame({ freq, clarity }) {
 
 const tuner = createTuner({
   onFrame,
-  onError: (err) => toast(`Erreur audio : ${err.message}`),
+  // Le tuner a coupé le micro de lui-même : l'écran doit le refléter.
+  onError: (err) => {
+    stopMic();
+    toast(`Erreur audio : ${err.message}`);
+  },
 });
 
+// L'écran reste allumé tant que le micro écoute ou que le métronome tourne.
+// Un seul verrou à la fois : en demander un second sans rendre le premier
+// laisserait l'écran allumé après l'arrêt.
 let wakeLock = null;
+let wakeLockPending = false;
+
+const needsWakeLock = () => tuner.isMicOn() || metronome.isRunning();
 
 async function requestWakeLock() {
+  if (wakeLock || wakeLockPending) return;
+  wakeLockPending = true;
   try {
-    wakeLock = (await navigator.wakeLock?.request('screen')) || null;
-    wakeLock?.addEventListener('release', () => { wakeLock = null; });
+    const lock = await navigator.wakeLock?.request('screen');
+    if (!lock) return;
+    lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+    if (needsWakeLock()) wakeLock = lock;
+    else lock.release();   // tout s'est arrêté pendant l'attente
   } catch {
     /* non disponible : sans conséquence pour l'accordage */
+  } finally {
+    wakeLockPending = false;
   }
+}
+
+function releaseWakeLock() {
+  const lock = wakeLock;
+  wakeLock = null;
+  lock?.release?.();
+}
+
+/** Prend ou rend le verrou selon ce qui tourne. */
+function syncWakeLock() {
+  if (needsWakeLock()) requestWakeLock();
+  else releaseWakeLock();
 }
 
 async function startMic() {
   try {
     el.micBtn.disabled = true;
-    await tuner.start();
+    el.gateBtn.disabled = true;
+    await tuner.start();   // coupe au passage la note de référence, si elle jouait
+    el.toneBtn.setAttribute('aria-pressed', String(tuner.isTonePlaying()));
     el.gate.hidden = true;
     el.micBtn.textContent = 'Couper le micro';
     el.micBtn.classList.add('is-on');
     resetDetection();
-    requestWakeLock();
+    syncWakeLock();
   } catch (err) {
     const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
     const msg = denied
@@ -553,13 +584,13 @@ async function startMic() {
     toast(msg);
   } finally {
     el.micBtn.disabled = false;
+    el.gateBtn.disabled = false;
   }
 }
 
 function stopMic() {
   tuner.stop();
-  wakeLock?.release?.();
-  wakeLock = null;
+  syncWakeLock();
   el.micBtn.textContent = 'Activer le micro';
   el.micBtn.classList.remove('is-on');
   renderIdle();
@@ -640,11 +671,19 @@ async function toggleMetronome() {
     el.playBtn.textContent = 'Démarrer';
     el.playBtn.classList.remove('is-on');
     clearBeats();
+    syncWakeLock();
   } else {
-    await metronome.start();
+    try {
+      await metronome.start();
+    } catch (err) {
+      toast(`Son indisponible : ${err.message}`);
+      return;
+    }
+    // Un arrêt (second tap, retour à l'accordeur) a pu passer pendant l'attente.
+    if (!metronome.isRunning()) return;
     el.playBtn.textContent = 'Arrêter';
     el.playBtn.classList.add('is-on');
-    requestWakeLock();
+    syncWakeLock();
   }
 }
 
@@ -668,17 +707,33 @@ function tapTempo() {
 /** Bascule entre accordeur et métronome : un seul des deux prend le son. */
 async function showView(view) {
   el.app.dataset.show = view;
-  if (view === 'metro') {
-    if (tuner.isTonePlaying()) {
-      await tuner.stopTone();
-      el.toneBtn.setAttribute('aria-pressed', 'false');
+  try {
+    if (view === 'metro') {
+      // Micro laissé fermé : le métronome prend la main, inutile de le rouvrir.
+      await stopToneUI({ resume: false });
+      await tuner.suspendForPlayback();   // libère l'enregistrement (haut-parleur sous iOS)
+    } else {
+      if (metronome.isRunning()) await toggleMetronome();
+      await tuner.resumeAfterPlayback();
+      resetDetection();
     }
-    await tuner.suspendForPlayback();   // libère l'enregistrement (haut-parleur sous iOS)
-  } else {
-    if (metronome.isRunning()) await toggleMetronome();
-    await tuner.resumeAfterPlayback();
-    resetDetection();
+  } catch (err) {
+    // Le micro n'a pas pu rouvrir : l'écran doit dire qu'il est éteint.
+    toast(`Audio indisponible : ${err.message}`);
+    if (view === 'tuner') stopMic();
   }
+}
+
+/**
+ * Coupe la note de référence et remet l'écran d'écoute à zéro. L'écran est
+ * mis à jour tout de suite : la réouverture du micro, elle, peut être longue.
+ */
+function stopToneUI(options) {
+  if (!tuner.isTonePlaying()) return Promise.resolve();
+  const done = tuner.stopTone(options);
+  el.toneBtn.setAttribute('aria-pressed', 'false');
+  resetDetection();
+  return done;
 }
 
 /* ------------------------------------------------------------------ toast */
@@ -709,6 +764,8 @@ el.toast.addEventListener('click', () => {
 /* ------------------------------------------------------------- évènements */
 
 el.gateBtn.addEventListener('click', startMic);
+// Le métronome et la note de référence n'ont pas besoin du micro.
+el.gateSkip.addEventListener('click', () => { el.gate.hidden = true; });
 el.micBtn.addEventListener('click', () => (tuner.isMicOn() ? stopMic() : startMic()));
 el.modeBtn.addEventListener('click', () => setMode(!settings.auto));
 
@@ -716,13 +773,14 @@ el.toneBtn.addEventListener('click', async () => {
   el.toneBtn.disabled = true;
   try {
     if (tuner.isTonePlaying()) {
-      await tuner.stopTone();
-      el.toneBtn.setAttribute('aria-pressed', 'false');
-      resetDetection();
+      await stopToneUI();
     } else {
       await tuner.playTone(targetFreq());
-      el.toneBtn.setAttribute('aria-pressed', 'true');
-      renderListening();
+      // Un arrêt a pu passer pendant l'attente : on n'affiche que ce qui joue.
+      if (tuner.isTonePlaying()) {
+        el.toneBtn.setAttribute('aria-pressed', 'true');
+        renderListening();
+      }
     }
   } catch (err) {
     toast(`Son indisponible : ${err.message}`);
@@ -741,7 +799,10 @@ function setA4(value) {
   state.tuned.clear();
   renderStrings();
   renderTargetLine();
-  if (tuner.isTonePlaying()) tuner.playTone(targetFreq());
+  if (tuner.isTonePlaying()) {
+    tuner.playTone(targetFreq());
+    renderListening();   // sinon l'écran garde l'ancienne fréquence
+  }
 }
 
 el.a4Range.addEventListener('input', (e) => setA4(Number(e.target.value)));
@@ -770,11 +831,15 @@ el.bpmPlus.addEventListener('click', () => setTempo(settings.bpm + 1));
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    tuner.stopTone();
-    el.toneBtn.setAttribute('aria-pressed', 'false');
+    // Seulement si une note joue : stopTone() rouvrirait sinon le micro en
+    // arrière-plan, y compris depuis le métronome qui l'avait fermé exprès.
+    stopToneUI().catch((err) => {
+      toast(`Micro indisponible : ${err.message}`);
+      stopMic();
+    });
     if (metronome.isRunning()) toggleMetronome();
-  } else if (tuner.isMicOn() && !wakeLock) {
-    requestWakeLock();
+  } else {
+    syncWakeLock();
   }
 });
 

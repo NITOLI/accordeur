@@ -2,7 +2,7 @@
 // Stratégie « stale-while-revalidate » : réponse immédiate depuis le cache,
 // mise à jour silencieuse en arrière-plan pour la prochaine ouverture.
 
-const CACHE = 'accordeur-v7';
+const CACHE = 'accordeur-v8';
 
 const ASSETS = [
   './',
@@ -25,7 +25,10 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((cache) => cache.addAll(ASSETS))
+      // « reload » : on ignore le cache HTTP du navigateur (GitHub Pages sert
+      // max-age=600), sinon une version fraîche de sw.js pourrait mettre en cache
+      // les fichiers périmés de la version précédente.
+      .then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -47,7 +50,8 @@ self.addEventListener('fetch', (event) => {
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(request, { ignoreSearch: true });
 
-      const network = fetch(request)
+      // « no-cache » : revalide auprès du serveur plutôt que de relire le cache HTTP.
+      const network = fetch(request, { cache: 'no-cache' })
         .then((response) => {
           if (response && response.ok && response.type === 'basic') {
             cache.put(request, response.clone());

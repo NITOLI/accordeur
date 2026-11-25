@@ -305,6 +305,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .gate h1 { margin: 10px 0 6px; font-size: 30px; letter-spacing: -.02em; }
 .gate p { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
 .gate .mic-btn { width: 100%; }
+.gate-skip {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .gate-note { margin-top: 14px !important; font-size: 12px; }
 
 /* ---------- Feuille de réglages ---------- */

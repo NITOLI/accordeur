@@ -47,6 +47,7 @@ export function createMetronome({ context, onBeat } = {}) {
   let bpm = 90;
   let beatsPerBar = 4;
   let running = false;
+  let generation = 0;  // change à chaque stop() : invalide un start() en attente
   let timer = 0;
   let rafId = 0;
   let origin = 0;      // temps audio du battement d'indice 0
@@ -90,6 +91,7 @@ export function createMetronome({ context, onBeat } = {}) {
   }
 
   function scheduler() {
+    if (!running) return;
     const ctx = context();
     while (beatTime(nextIndex) < ctx.currentTime + SCHEDULE_AHEAD) {
       const time = beatTime(nextIndex);
@@ -106,25 +108,42 @@ export function createMetronome({ context, onBeat } = {}) {
     if (!running) return;
     rafId = requestAnimationFrame(visualLoop);
     const now = context().currentTime;
-    while (queue.length && queue[0].time <= now) onBeat?.(queue.shift());
+    while (queue.length && queue[0].time <= now) {
+      // shift() à part : `onBeat?.(queue.shift())` n'évalue pas l'argument
+      // quand onBeat est absent, et la boucle ne finirait jamais.
+      const beat = queue.shift();
+      onBeat?.(beat);
+    }
   }
 
   async function start() {
     if (running) return;
-    const ctx = context();
-    await ctx.resume();
+    // « running » passe à vrai avant l'attente : un second appel (double tap)
+    // sort tout de suite au lieu de lancer un deuxième ordonnanceur.
     running = true;
+    const mine = ++generation;
+    const ctx = context();
+    try {
+      await ctx.resume();
+    } catch (err) {
+      if (mine === generation) running = false;
+      throw err;
+    }
+    if (mine !== generation) return; // stop() est passé pendant l'attente
     queue = [];
     nextIndex = 0;
     nextInBar = 0;
     origin = ctx.currentTime + 0.12; // un souffle d'avance avant le 1er clic
     scheduler();
+    clearInterval(timer);
     timer = setInterval(scheduler, LOOKAHEAD_MS);
+    cancelAnimationFrame(rafId);
     visualLoop();
   }
 
   function stop() {
     running = false;
+    generation++;
     clearInterval(timer);
     cancelAnimationFrame(rafId);
     queue = [];

@@ -116,6 +116,29 @@ console.log('\n— à 48 kHz (la fréquence réelle sur iOS) —');
   }
 }
 
+// Régression : fondamental fort sur une note grave. Le lobe du retard 0 de la
+// NSDF dépassait minLag et passait pour un pic (≈ 1185 Hz à 48 kHz, rien à
+// 44,1 kHz). On teste avec la fenêtre réelle de l'app (3072) et des sinus.
+console.log('\n— notes graves, fondamental fort, fenêtre 3072 (44,1 et 48 kHz) —');
+for (const sr of [44100, 48000]) {
+  const det = createDetector({ sampleRate: sr, bufferSize: 3072 });
+  for (const [name, f] of [['C2', 65.41], ['D2', 73.42], ['E2', 82.41], ['G2', 98.0], ['A2', 110.0]]) {
+    for (const harm of [[1], [1, 0.3]]) {
+      const buf = new Float32Array(3072);
+      for (let i = 0; i < buf.length; i++) {
+        let v = 0;
+        harm.forEach((a, k) => { v += a * Math.sin((2 * Math.PI * f * (k + 1) * i) / sr + 0.3 * k); });
+        buf[i] = v * 0.3;
+      }
+      const { freq, clarity } = det.detect(buf);
+      const cents = freq ? centsBetween(freq, f) : NaN;
+      const ok = freq > 0 && Math.abs(cents) <= 1;
+      if (!ok) failures++;
+      console.log(`${ok ? 'ok  ' : 'FAIL'} ${`${name} ${sr} Hz, ${harm.length} partiel(s)`.padEnd(46)} ${freq ? `${freq.toFixed(2)} Hz (clarté ${clarity.toFixed(2)})` : 'aucune détection'}`);
+    }
+  }
+}
+
 console.log('\n— cas limites —');
 const silence = new Float32Array(N);
 const s = detector.detect(silence);

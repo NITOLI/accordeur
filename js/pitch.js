@@ -50,18 +50,23 @@ export function createDetector(opts) {
     let m = 2 * power;
     for (let tau = 1; tau <= maxLag; tau++) {
       m -= work[n - tau] * work[n - tau] + work[tau - 1] * work[tau - 1];
-      if (tau < minLag) { nsdf[tau] = 0; continue; }
       let r = 0;
       const end = n - tau;
       for (let i = 0; i < end; i++) r += work[i] * work[i + tau];
       nsdf[tau] = m > 0 ? (2 * r) / m : 0;
     }
 
-    // Pics : un maximum local par plage où la NSDF est positive.
+    // Pics : un maximum local par plage où la NSDF est positive. On part du
+    // premier passage sous zéro : le lobe du retard 0 (la corrélation de la
+    // trame avec elle-même) est toujours « un pic », et sur une note grave sa
+    // pente descendante dépasse encore minLag — la prendre pour la période
+    // donnerait ~1200 Hz. Comme dans MPM, on l'ignore donc.
     let best = 0;
     let bestTau = 0;
     const peaks = [];
-    let tau = minLag;
+    let tau = 1;
+    while (tau <= maxLag && nsdf[tau] >= 0) tau++;
+    if (tau < minLag) tau = minLag;
     while (tau <= maxLag) {
       if (nsdf[tau] <= 0) { tau++; continue; }
       let peakTau = tau;

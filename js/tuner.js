@@ -40,6 +40,8 @@ export function createTuner({ onFrame, onError } = {}) {
   let lastRun = 0;
   let running = false;   // le micro est réellement ouvert
   let micWanted = false; // l'utilisateur veut le micro (indépendant de la pause)
+  let suspended = false; // un son (note, métronome) tient la session audio : micro fermé
+  let opening = null;    // ouverture du micro en cours (partagée entre appelants)
   let tone = null;
 
   function audioContext() {
@@ -47,15 +49,24 @@ export function createTuner({ onFrame, onError } = {}) {
     return ctx;
   }
 
-  /** Ouvre le micro et lance la boucle d'analyse. */
-  async function openMic() {
-    if (running) return;
+  /**
+   * Ouvre le micro et lance la boucle d'analyse. Les appels qui se chevauchent
+   * (double tap, retour d'une note pendant l'ouverture) partagent la même
+   * ouverture : un seul flux, jamais deux.
+   */
+  function openMic() {
+    if (running) return Promise.resolve();
+    if (!opening) opening = doOpenMic().finally(() => { opening = null; });
+    return opening;
+  }
+
+  async function doOpenMic() {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("Ce navigateur n'expose pas le micro (getUserMedia).");
     }
 
     // On coupe les traitements du navigateur : ils déforment la hauteur.
-    stream = await navigator.mediaDevices.getUserMedia({
+    const media = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
@@ -63,9 +74,23 @@ export function createTuner({ onFrame, onError } = {}) {
         channelCount: 1,
       },
     });
+    const release = () => media.getTracks().forEach((t) => t.stop());
 
-    const ac = audioContext();
-    await ac.resume();
+    try {
+      const ac = audioContext();
+      await ac.resume();
+      // Pendant l'attente, l'utilisateur a pu couper le micro ou lancer un son
+      // (note, métronome) : on rend alors le flux tout de suite.
+      if (!micWanted || suspended) { release(); return; }
+      buildChain(ac, media);
+    } catch (err) {
+      release();
+      throw err;
+    }
+  }
+
+  function buildChain(ac, media) {
+    stream = media;
     const source = ac.createMediaStreamSource(stream);
 
     // Passe-bande large : on enlève les rumbles et le souffle aigu, tout en
@@ -117,14 +142,22 @@ export function createTuner({ onFrame, onError } = {}) {
       analyser.getFloatTimeDomainData(buffer);
       onFrame?.(detector.detect(buffer.subarray(0, WINDOW_SIZE)));
     } catch (err) {
-      onError?.(err);
+      // Le micro est coupé : on le dit à l'interface, qui doit afficher « éteint ».
       closeMic();
       micWanted = false;
+      onError?.(err);
     }
   }
 
   async function start() {
     micWanted = true;
+    // La note de référence tient la session en « lecture » : on la coupe, sinon
+    // le micro analyserait le haut-parleur au lieu de la corde.
+    if (tone) {
+      releaseTone();
+      suspended = false;
+      setAudioSession('play-and-record');
+    }
     try {
       await openMic();
     } catch (err) {
@@ -145,6 +178,7 @@ export function createTuner({ onFrame, onError } = {}) {
    * note de référence comme au métronome.
    */
   async function suspendForPlayback() {
+    suspended = true;
     if (running) closeMic();
     setAudioSession('playback');
     await audioContext().resume();
@@ -152,6 +186,8 @@ export function createTuner({ onFrame, onError } = {}) {
 
   /** Rend la main au micro si l'utilisateur le voulait. */
   async function resumeAfterPlayback() {
+    if (tone) return; // une note joue encore : elle garde la session
+    suspended = false;
     setAudioSession(micWanted ? 'play-and-record' : 'auto');
     if (micWanted && !running) await openMic();
   }
@@ -173,6 +209,9 @@ export function createTuner({ onFrame, onError } = {}) {
     }
 
     await suspendForPlayback();
+    // Si stopTone() ou resumeAfterPlayback() est passé pendant l'attente, la
+    // note n'est plus voulue : on ne la joue pas.
+    if (!suspended || tone) return;
 
     const t = ac.currentTime;
     const gain = ac.createGain();
@@ -195,19 +234,27 @@ export function createTuner({ onFrame, onError } = {}) {
     tone = { gain, oscs, freq };
   }
 
-  /** Coupe la note et rouvre le micro si l'utilisateur le voulait. */
-  async function stopTone() {
-    if (tone) {
-      const { gain, oscs } = tone;
-      tone = null;
-      const t = ctx.currentTime;
-      gain.gain.cancelScheduledValues(t);
-      gain.gain.setValueAtTime(gain.gain.value, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.06);
-      oscs.forEach((osc) => osc.stop(t + 0.12));
-      setTimeout(() => gain.disconnect(), 250);
-    }
-    await resumeAfterPlayback();
+  /** Coupe les oscillateurs de la note, sans toucher au micro. */
+  function releaseTone() {
+    if (!tone) return;
+    const { gain, oscs } = tone;
+    tone = null;
+    const t = ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0, t + 0.06);
+    oscs.forEach((osc) => osc.stop(t + 0.12));
+    setTimeout(() => gain.disconnect(), 250);
+  }
+
+  /**
+   * Coupe la note et rouvre le micro si l'utilisateur le voulait. Avec
+   * `resume: false`, le micro reste fermé : l'appelant prend la suite
+   * (passage au métronome) et rouvrir pour refermer aussitôt serait absurde.
+   */
+  async function stopTone({ resume = true } = {}) {
+    releaseTone();
+    if (resume) await resumeAfterPlayback();
   }
 
   return {
