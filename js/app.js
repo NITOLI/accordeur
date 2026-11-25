@@ -206,6 +206,7 @@ function renderStrings() {
   el.strings.querySelectorAll('.string').forEach((btn) => {
     const i = Number(btn.dataset.index);
     btn.dataset.state = state.tuned.has(i) ? 'tuned' : i === state.targetIndex ? 'active' : 'idle';
+    btn.setAttribute('aria-pressed', String(i === state.targetIndex));
   });
 }
 
@@ -292,7 +293,7 @@ function renderListening() {
   setAdvice(`Compare à l'oreille, puis coupe le son pour accorder la <b>corde ${s.number}</b>.`);
 }
 
-function render(freq, cents, clarity) {
+function render(freq, cents) {
   const tol = tolerance();
   const s = state.strings[state.targetIndex];
   const { name, octave } = midiToNote(s.midi);
@@ -332,8 +333,12 @@ function selectString(index) {
   state.inZoneSince = 0;
   renderStrings();
   renderTargetLine();
-  if (tuner.isTonePlaying()) tuner.playTone(targetFreq());
-  if (state.idle) renderIdle();
+  if (tuner.isTonePlaying()) {
+    tuner.playTone(targetFreq());
+    renderListening();   // sinon l'écran garde la fréquence de la corde d'avant
+  } else if (state.idle) {
+    renderIdle();
+  }
 }
 
 function setMode(auto, { silent = false } = {}) {
@@ -444,7 +449,7 @@ function onFrame({ freq, clarity }) {
     }
   }
 
-  render(smooth, cents, clarity);
+  render(smooth, cents);
 }
 
 /* ------------------------------------------------------------------ micro */
@@ -498,12 +503,27 @@ function stopMic() {
 /* ------------------------------------------------------------------ toast */
 
 let toastTimer = 0;
-function toast(message) {
+let toastAction = null;
+
+function toast(message, { action = null, duration = action ? 9000 : 2200 } = {}) {
   el.toast.textContent = message;
   el.toast.classList.add('show');
+  el.toast.classList.toggle('tappable', Boolean(action));
+  toastAction = action;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.toast.classList.remove('show'), 2200);
+  toastTimer = setTimeout(hideToast, duration);
 }
+
+function hideToast() {
+  el.toast.classList.remove('show', 'tappable');
+  toastAction = null;
+}
+
+el.toast.addEventListener('click', () => {
+  const run = toastAction;
+  hideToast();
+  run?.();
+});
 
 /* ------------------------------------------------------------- évènements */
 
@@ -586,6 +606,16 @@ if (!window.isSecureContext) {
 }
 
 if ('serviceWorker' in navigator) {
+  // Le service worker sert d'abord la version en cache, puis télécharge la
+  // nouvelle en fond : sans ça, il faut relancer deux fois pour voir une mise
+  // à jour. Quand la nouvelle version a pris la main, on propose de recharger.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // première installation : rien de neuf à montrer
+    toast('Nouvelle version prête — touche ici pour recharger', {
+      action: () => location.reload(),
+    });
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {
       /* hors-ligne indisponible : l'accordeur fonctionne quand même */

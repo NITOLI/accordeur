@@ -316,6 +316,7 @@ input[type="range"] { width: 100%; margin-top: 12px; accent-color: var(--accent)
   text-align: center;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.tappable { pointer-events: auto; cursor: pointer; border-color: var(--accent); color: var(--text); }
 
 @media (prefers-reduced-motion: reduce) {
   .needle, .needle line, .string, .toast { transition: none; }

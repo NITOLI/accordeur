@@ -71,6 +71,51 @@ for (const [name, f] of OPEN) {
   check(name, pluck(detuned, { noise: 0.06, decay: 2.2, seed: 42 }), detuned, 4);
 }
 
+// Les cordes filées sont raides : leurs partiels tombent à k*f0*sqrt(1+B k^2)
+// et non sur des multiples exacts. C'est la cause classique des désaccords
+// entre accordeurs — on vérifie que le biais reste négligeable.
+function stiff(freq, B) {
+  const buf = new Float32Array(N);
+  const amps = [1, 0.6, 0.42, 0.3, 0.22, 0.16, 0.12];
+  const gain = amps.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < N; i++) {
+    let v = 0;
+    amps.forEach((a, k) => {
+      const fk = (k + 1) * freq * Math.sqrt(1 + B * (k + 1) ** 2);
+      v += a * Math.sin((2 * Math.PI * fk * i) / SR + 0.3 * k);
+    });
+    buf[i] = (v / gain) * 0.5;
+  }
+  return buf;
+}
+
+console.log('\n— inharmonicité des cordes filées (B = 5e-5, puis 1e-4) —');
+for (const [name, f] of OPEN) check(`${name}, B = 5e-5`, stiff(f, 5e-5), f, 3);
+for (const [name, f] of OPEN.slice(0, 3)) check(`${name}, B = 1e-4`, stiff(f, 1e-4), f, 3);
+
+// iOS fait tourner l'audio à 48 kHz : la plage de retards change, donc on
+// vérifie le détecteur à cette fréquence aussi.
+console.log('\n— à 48 kHz (la fréquence réelle sur iOS) —');
+{
+  const SR48 = 48000;
+  const det48 = createDetector({ sampleRate: SR48, bufferSize: N });
+  for (const [name, f] of OPEN) {
+    const buf = new Float32Array(N);
+    const harm = [1, 0.6, 0.4, 0.25, 0.15, 0.1];
+    const gain = harm.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < N; i++) {
+      let v = 0;
+      harm.forEach((a, k) => { v += a * Math.sin((2 * Math.PI * f * (k + 1) * i) / SR48 + 0.3 * (k + 1)); });
+      buf[i] = (v / gain) * 0.5;
+    }
+    const { freq, clarity } = det48.detect(buf);
+    const cents = freq ? centsBetween(freq, f) : NaN;
+    const ok = freq > 0 && Math.abs(cents) <= 1;
+    if (!ok) failures++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(46)} ${freq ? `${freq.toFixed(2)} Hz (${cents >= 0 ? '+' : ''}${cents.toFixed(2)} cents, clarté ${clarity.toFixed(2)})` : 'aucune détection'}`);
+  }
+}
+
 console.log('\n— cas limites —');
 const silence = new Float32Array(N);
 const s = detector.detect(silence);

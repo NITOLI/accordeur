@@ -32,6 +32,7 @@ function setAudioSession(type) {
 export function createTuner({ onFrame, onError } = {}) {
   let ctx = null;
   let stream = null;
+  let chain = [];        // nœuds du graphe d'entrée, à débrancher à la fermeture
   let analyser = null;
   let detector = null;
   let buffer = null;
@@ -86,6 +87,7 @@ export function createTuner({ onFrame, onError } = {}) {
     source.connect(highpass);
     highpass.connect(lowpass);
     lowpass.connect(analyser);
+    chain = [source, highpass, lowpass, analyser];
 
     buffer = new Float32Array(BUFFER_SIZE);
     detector = createDetector({ sampleRate: ac.sampleRate, bufferSize: WINDOW_SIZE });
@@ -101,6 +103,8 @@ export function createTuner({ onFrame, onError } = {}) {
     cancelAnimationFrame(rafId);
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
+    chain.forEach((node) => node.disconnect());
+    chain = [];
     analyser = null;
   }
 
