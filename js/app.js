@@ -10,7 +10,8 @@ import { TUNINGS, DEFAULT_TUNING_ID, getTuning, tuningStrings, tuningSummary } f
 const STORE_KEY = 'accordeur.settings.v1';
 
 const settings = Object.assign(
-  { tuningId: DEFAULT_TUNING_ID, a4: 440, strict: false, haptic: true, auto: true },
+  { tuningId: DEFAULT_TUNING_ID, a4: 440, strict: false, haptic: true, auto: true,
+    response: 'equilibre' },
   readSettings()
 );
 
@@ -35,17 +36,35 @@ function saveSettings() {
 // Une trame d'analyse dure 50 ms. Ces valeurs règlent la nervosité de
 // l'affichage : assez lent pour que l'aiguille ne tremble pas, assez vif pour
 // suivre la mécanique qu'on tourne.
-const HISTORY = 7;              // 350 ms de trames lissées ensemble
-const SILENCE_FRAMES = 11;      // ~550 ms sans note -> retour au repos
 const HOLD_TUNED_MS = 400;      // durée dans la zone juste pour valider
 const HOLD_UNTUNED_MS = 700;    // durée hors zone pour invalider
 const SWITCH_FRAMES = 6;        // ~300 ms avant de changer de corde en auto
 const CLARITY_TUNED = 0.7;      // périodicité minimale pour valider une corde
 const CLARITY_SHOW = 0.72;      // en dessous, on garde l'affichage précédent
                                 // plutôt que de suivre une mesure douteuse
-const EASE_FAR = 0.4;           // suivi rapide quand on est loin du juste
-const EASE_NEAR = 0.14;         // ~360 ms de constante de temps près du juste
 const EASE_SPAN = 10;           // écart, en cents, à partir duquel on suit à fond
+
+// Réactivité : trois dosages du même compromis. « history » est le nombre de
+// trames de 50 ms lissées ensemble, « near » et « far » la vitesse de suivi
+// près du juste et loin de lui, « silence » le nombre de trames muettes avant
+// de revenir au repos.
+const RESPONSE = {
+  vif:       { label: 'Vif',       history: 4,  near: 0.26, far: 0.50, silence: 8 },
+  equilibre: { label: 'Équilibré', history: 7,  near: 0.14, far: 0.40, silence: 11 },
+  // « posé » garde la fenêtre d'« équilibré » : l'allonger faisait battre la
+  // médiane contre le vibrato de la corde, ce qui agitait l'aiguille au lieu
+  // de la calmer. Seul le suivi est ralenti.
+  pose:      { label: 'Posé',      history: 7,  near: 0.08, far: 0.30, silence: 14 },
+};
+const RESPONSE_HINT = {
+  vif: "L'aiguille suit la corde au plus près. Elle tremble un peu.",
+  equilibre: 'Le compromis par défaut.',
+  pose: "L'aiguille est très stable, au prix d'un léger retard.",
+};
+
+function resp() {
+  return RESPONSE[settings.response] || RESPONSE.equilibre;
+}
 
 const state = {
   strings: [],
@@ -82,6 +101,8 @@ const el = {
   a4Range: document.getElementById('a4Range'),
   a4Minus: document.getElementById('a4Minus'),
   a4Plus: document.getElementById('a4Plus'),
+  responseList: document.getElementById('responseList'),
+  responseHint: document.getElementById('responseHint'),
   strictChk: document.getElementById('strictChk'),
   hapticChk: document.getElementById('hapticChk'),
   modeBtn: document.getElementById('modeBtn'),
@@ -194,6 +215,27 @@ function buildTuningList() {
     frag.appendChild(btn);
   });
   el.tuningList.replaceChildren(frag);
+}
+
+function buildResponsePicker() {
+  const frag = document.createDocumentFragment();
+  for (const [id, preset] of Object.entries(RESPONSE)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'segment';
+    btn.textContent = preset.label;
+    btn.setAttribute('aria-pressed', String(id === settings.response));
+    btn.addEventListener('click', () => {
+      settings.response = id;
+      saveSettings();
+      buildResponsePicker();
+      state.history.length = 0;
+      toast(`Réactivité : ${preset.label.toLowerCase()}`);
+    });
+    frag.appendChild(btn);
+  }
+  el.responseList.replaceChildren(frag);
+  el.responseHint.textContent = RESPONSE_HINT[settings.response] || RESPONSE_HINT.equilibre;
 }
 
 /* -------------------------------------------------------------- rendu live */
@@ -412,14 +454,14 @@ function onFrame({ freq, clarity }) {
   // Trame muette, ou périodicité trop faible pour être crue : on ne bouge pas.
   // C'est le cas dans la queue d'une note, quand le bruit prend le dessus.
   if (!freq || clarity < CLARITY_SHOW) {
-    if (++state.silence >= SILENCE_FRAMES && !state.idle) renderIdle();
+    if (++state.silence >= resp().silence && !state.idle) renderIdle();
     return;
   }
   state.silence = 0;
   state.idle = false;
 
   state.history.push(freq);
-  if (state.history.length > HISTORY) state.history.shift();
+  while (state.history.length > resp().history) state.history.shift();
   const smooth = smoothFrequencies(state.history);
 
   if (settings.auto) pickString(smooth);
@@ -428,9 +470,10 @@ function onFrame({ freq, clarity }) {
   // Lissage adaptatif : la vitesse de suivi croît avec le carré de l'écart.
   // Tourner une mécanique est suivi tout de suite ; le tremblement de quelques
   // cents autour de la note, lui, reste amorti.
+  const { near, far } = resp();
   const err = Math.abs(rawCents - state.displayCents);
   const ramp = Math.min(1, err / EASE_SPAN) ** 2;
-  const alpha = EASE_NEAR + (EASE_FAR - EASE_NEAR) * ramp;
+  const alpha = near + (far - near) * ramp;
   state.displayCents += (rawCents - state.displayCents) * alpha;
   const cents = state.displayCents;
 
@@ -593,6 +636,7 @@ document.addEventListener('visibilitychange', () => {
 buildGauge();
 buildStrings();
 buildTuningList();
+buildResponsePicker();
 el.a4Value.textContent = `${settings.a4} Hz`;
 el.a4Range.value = String(settings.a4);
 el.strictChk.checked = settings.strict;
