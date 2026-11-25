@@ -1,6 +1,7 @@
 // Interface de l'accordeur : cadran, cordes, réglages, note de référence.
 
 import { createTuner } from './tuner.js';
+import { createMetronome, tempoName, tapToBpm, MIN_BPM, MAX_BPM } from './metronome.js';
 import { smoothFrequencies } from './pitch.js';
 import { centsBetween, midiToFreq, midiToNote, nearestNote } from './notes.js';
 import { TUNINGS, DEFAULT_TUNING_ID, getTuning, tuningStrings, tuningSummary } from './tunings.js';
@@ -11,7 +12,7 @@ const STORE_KEY = 'accordeur.settings.v1';
 
 const settings = Object.assign(
   { tuningId: DEFAULT_TUNING_ID, a4: 440, strict: false, haptic: true, auto: true,
-    response: 'equilibre' },
+    response: 'equilibre', bpm: 90, beatsPerBar: 4 },
   readSettings()
 );
 
@@ -113,6 +114,19 @@ const el = {
   gateBtn: document.getElementById('gateBtn'),
   gateNote: document.getElementById('gateNote'),
   toast: document.getElementById('toast'),
+  // métronome
+  metroBtn: document.getElementById('metroBtn'),
+  backBtn: document.getElementById('backBtn'),
+  beats: document.getElementById('beats'),
+  bpmValue: document.getElementById('bpmValue'),
+  tempoName: document.getElementById('tempoName'),
+  bpmRange: document.getElementById('bpmRange'),
+  bpmMinus: document.getElementById('bpmMinus'),
+  bpmPlus: document.getElementById('bpmPlus'),
+  signatures: document.getElementById('signatures'),
+  tapBtn: document.getElementById('tapBtn'),
+  playBtn: document.getElementById('playBtn'),
+  app: document.querySelector('.app'),
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -229,6 +243,14 @@ function buildResponsePicker() {
       settings.response = id;
       saveSettings();
       buildResponsePicker();
+// une seule source pour les bornes : le moteur
+el.bpmRange.min = String(MIN_BPM);
+el.bpmRange.max = String(MAX_BPM);
+metronome.setTempo(settings.bpm);
+metronome.setBeatsPerBar(settings.beatsPerBar);
+buildSignatures();
+buildBeats();
+renderTempo();
       state.history.length = 0;
       toast(`Réactivité : ${preset.label.toLowerCase()}`);
     });
@@ -543,6 +565,122 @@ function stopMic() {
   renderIdle();
 }
 
+/* -------------------------------------------------------------- métronome */
+
+const metronome = createMetronome({
+  context: () => tuner.context(),
+  onBeat: (beat) => flashBeat(beat),
+});
+
+const SIGNATURES = [
+  { beats: 2, label: '2/4' },
+  { beats: 3, label: '3/4' },
+  { beats: 4, label: '4/4' },
+  { beats: 6, label: '6/8' },
+];
+
+function buildBeats() {
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < settings.beatsPerBar; i++) {
+    const dot = document.createElement('span');
+    dot.className = i === 0 && settings.beatsPerBar > 1 ? 'beat accent' : 'beat';
+    frag.appendChild(dot);
+  }
+  el.beats.replaceChildren(frag);
+}
+
+function buildSignatures() {
+  const frag = document.createDocumentFragment();
+  for (const sig of SIGNATURES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'signature';
+    btn.textContent = sig.label;
+    btn.setAttribute('aria-pressed', String(sig.beats === settings.beatsPerBar));
+    btn.addEventListener('click', () => {
+      settings.beatsPerBar = metronome.setBeatsPerBar(sig.beats);
+      saveSettings();
+      buildSignatures();
+      buildBeats();
+    });
+    frag.appendChild(btn);
+  }
+  el.signatures.replaceChildren(frag);
+}
+
+/**
+ * Le temps courant reste allumé jusqu'au suivant : on voit le battement, mais
+ * aussi où on en est dans la mesure. Un éclat bref, lui, serait invisible au
+ * moindre à-coup d'affichage.
+ */
+function flashBeat({ inBar }) {
+  const dots = el.beats.children;
+  for (let i = 0; i < dots.length; i++) dots[i].classList.toggle('on', i === inBar);
+}
+
+function clearBeats() {
+  for (const dot of el.beats.children) dot.classList.remove('on');
+}
+
+function renderTempo() {
+  el.bpmValue.textContent = String(settings.bpm);
+  el.tempoName.textContent = tempoName(settings.bpm);
+  el.bpmRange.value = String(settings.bpm);
+}
+
+function setTempo(value) {
+  settings.bpm = metronome.setTempo(value);
+  saveSettings();
+  renderTempo();
+}
+
+async function toggleMetronome() {
+  if (metronome.isRunning()) {
+    metronome.stop();
+    el.playBtn.textContent = 'Démarrer';
+    el.playBtn.classList.remove('is-on');
+    clearBeats();
+  } else {
+    await metronome.start();
+    el.playBtn.textContent = 'Arrêter';
+    el.playBtn.classList.add('is-on');
+    requestWakeLock();
+  }
+}
+
+let taps = [];
+function tapTempo() {
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 2500) taps = [];
+  taps.push(now);
+  if (taps.length > 5) taps.shift();
+  const bpm = tapToBpm(taps);
+  if (bpm) {
+    setTempo(bpm);
+    el.tapBtn.textContent = `${bpm} bpm`;
+  } else {
+    el.tapBtn.textContent = 'Encore…';
+  }
+  clearTimeout(tapTempo.reset);
+  tapTempo.reset = setTimeout(() => { el.tapBtn.textContent = 'Frappe le tempo'; }, 2500);
+}
+
+/** Bascule entre accordeur et métronome : un seul des deux prend le son. */
+async function showView(view) {
+  el.app.dataset.show = view;
+  if (view === 'metro') {
+    if (tuner.isTonePlaying()) {
+      await tuner.stopTone();
+      el.toneBtn.setAttribute('aria-pressed', 'false');
+    }
+    await tuner.suspendForPlayback();   // libère l'enregistrement (haut-parleur sous iOS)
+  } else {
+    if (metronome.isRunning()) await toggleMetronome();
+    await tuner.resumeAfterPlayback();
+    resetDetection();
+  }
+}
+
 /* ------------------------------------------------------------------ toast */
 
 let toastTimer = 0;
@@ -622,10 +760,19 @@ el.hapticChk.addEventListener('change', (e) => {
   saveSettings();
 });
 
+el.metroBtn.addEventListener('click', () => showView('metro'));
+el.backBtn.addEventListener('click', () => showView('tuner'));
+el.playBtn.addEventListener('click', toggleMetronome);
+el.tapBtn.addEventListener('click', tapTempo);
+el.bpmRange.addEventListener('input', (e) => setTempo(Number(e.target.value)));
+el.bpmMinus.addEventListener('click', () => setTempo(settings.bpm - 1));
+el.bpmPlus.addEventListener('click', () => setTempo(settings.bpm + 1));
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     tuner.stopTone();
     el.toneBtn.setAttribute('aria-pressed', 'false');
+    if (metronome.isRunning()) toggleMetronome();
   } else if (tuner.isMicOn() && !wakeLock) {
     requestWakeLock();
   }
@@ -637,6 +784,14 @@ buildGauge();
 buildStrings();
 buildTuningList();
 buildResponsePicker();
+// une seule source pour les bornes : le moteur
+el.bpmRange.min = String(MIN_BPM);
+el.bpmRange.max = String(MAX_BPM);
+metronome.setTempo(settings.bpm);
+metronome.setBeatsPerBar(settings.beatsPerBar);
+buildSignatures();
+buildBeats();
+renderTempo();
 el.a4Value.textContent = `${settings.a4} Hz`;
 el.a4Range.value = String(settings.a4);
 el.strictChk.checked = settings.strict;

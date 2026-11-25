@@ -60,6 +60,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: calc(var(--safe-top) + 10px) 16px calc(var(--safe-bottom) + 12px);
 }
 
+/* ---------- Bascule entre les deux vues ---------- */
+
+.app[data-show="tuner"] [data-view="metro"],
+.app[data-show="metro"] [data-view="tuner"] { display: none; }
+
+.app[data-show="metro"] .stage { justify-content: center; padding-bottom: 24px; }
+
+.view-title { font-size: 14px; font-weight: 600; color: var(--muted); padding-right: 6px; }
+
 /* ---------- Barre du haut ---------- */
 
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -233,6 +242,51 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .mic-btn:disabled { opacity: .6; }
 .mic-btn.is-on { background: var(--bg-soft); color: var(--text); border: 1px solid var(--line); }
+
+/* ---------- Métronome ---------- */
+
+.beats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 22px;
+  margin-bottom: 22px;
+}
+.beat {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #1f2a38;
+  border: 1px solid var(--line);
+  transition: transform .06s ease-out, background .06s ease-out;
+}
+.beat.accent { width: 18px; height: 18px; }
+.beat.on { background: var(--text); border-color: var(--text); transform: scale(1.25); }
+.beat.accent.on { background: var(--accent); border-color: var(--accent); }
+
+.bpm {
+  margin: 0;
+  font-size: clamp(64px, 22vw, 96px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.bpm-unit { margin: 6px 0 24px; font-size: 13px; color: var(--muted); }
+.bpm-unit span { color: var(--text); font-weight: 600; }
+.bpm-row { display: flex; align-items: center; gap: 14px; width: 100%; }
+.bpm-row input[type="range"] { margin: 0; }
+
+.signatures { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.signature {
+  padding: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-soft);
+  font-size: 15px;
+  font-weight: 600;
+}
+.signature[aria-pressed="true"] { border-color: var(--accent); background: #10281d; color: var(--accent); }
 
 /* ---------- Écran d'accueil ---------- */
 

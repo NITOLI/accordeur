@@ -16,9 +16,9 @@
 <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
-<div class="app">
+<div class="app" data-show="tuner">
 
-  <header class="topbar">
+  <header class="topbar" data-view="tuner">
     <button id="tuningBtn" class="pill" type="button" aria-haspopup="dialog" aria-label="Accordage et réglages">
       <span class="pill-kicker">Accordage</span>
       <span class="pill-value">
@@ -31,7 +31,7 @@
     </button>
   </header>
 
-  <main class="stage">
+  <main class="stage" data-view="tuner">
     <div class="gauge" id="gauge">
       <svg viewBox="0 0 320 170" aria-hidden="true">
         <g id="gaugeTicks"></g>
@@ -53,13 +53,44 @@
     <div class="advice"><p id="adviceText">Active le micro pour commencer.</p></div>
   </main>
 
-  <section class="strings" id="strings" aria-label="Cordes"></section>
+  <section class="strings" id="strings" data-view="tuner" aria-label="Cordes"></section>
 
-  <footer class="bottombar">
+  <footer class="bottombar" data-view="tuner">
     <button id="modeBtn" class="mode-btn" type="button" aria-pressed="true">
       <span class="dot"></span><span id="modeLabel">Auto</span>
     </button>
     <button id="micBtn" class="mic-btn" type="button">Activer le micro</button>
+    <button id="metroBtn" class="icon-btn" type="button" title="Métronome" aria-label="Ouvrir le métronome">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l3.5 18h-13L9 3z"/><path d="M6.6 15.5h10.8"/><path d="M12 19 16.5 6.5"/></svg>
+    </button>
+  </footer>
+
+  <!-- ------------------------------- métronome ------------------------------- -->
+
+  <header class="topbar" data-view="metro">
+    <button id="backBtn" class="pill" type="button">
+      <span class="pill-kicker">Retour</span>
+      <span class="pill-value">Accordeur</span>
+    </button>
+    <span class="view-title">Métronome</span>
+  </header>
+
+  <main class="stage" data-view="metro">
+    <div class="beats" id="beats" aria-hidden="true"></div>
+    <p class="bpm" id="bpmValue">90</p>
+    <p class="bpm-unit">battements par minute · <span id="tempoName">Andante</span></p>
+    <div class="bpm-row">
+      <button class="step" id="bpmMinus" type="button" aria-label="Moins vite">–</button>
+      <input type="range" id="bpmRange" min="30" max="250" step="1" value="90" aria-label="Tempo">
+      <button class="step" id="bpmPlus" type="button" aria-label="Plus vite">+</button>
+    </div>
+  </main>
+
+  <section class="signatures" id="signatures" aria-label="Mesure"></section>
+
+  <footer class="bottombar" data-view="metro">
+    <button id="tapBtn" class="mode-btn" type="button">Frappe le tempo</button>
+    <button id="playBtn" class="mic-btn" type="button">Démarrer</button>
   </footer>
 </div>
 

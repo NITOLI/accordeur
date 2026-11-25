@@ -2,7 +2,7 @@
 // Stratégie « stale-while-revalidate » : réponse immédiate depuis le cache,
 // mise à jour silencieuse en arrière-plan pour la prochaine ouverture.
 
-const CACHE = 'accordeur-v6';
+const CACHE = 'accordeur-v7';
 
 const ASSETS = [
   './',
@@ -11,6 +11,7 @@ const ASSETS = [
   './css/styles.css',
   './js/app.js',
   './js/tuner.js',
+  './js/metronome.js',
   './js/pitch.js',
   './js/notes.js',
   './js/tunings.js',

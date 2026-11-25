@@ -20,6 +20,11 @@ jamais envoyé sur un serveur. Aucune dépendance, aucune étape de build.
   Open D, Open G, DADGAD.
 - **Diapason réglable** de 415 à 465 Hz (440 par défaut), **mode strict** à ±2 cents,
   **vibration** quand la corde est juste, **note de référence** à écouter.
+- **Métronome** : 30 à 250 bpm, frappe du tempo, mesures 2/4, 3/4, 4/4 et 6/8,
+  accent sur le premier temps, indication italienne (Andante, Allegro…). Les
+  clics sont programmés à l'avance sur l'horloge audio, donc le tempo ne dérive
+  pas même si l'interface bégaye : mesuré à 500,000 ms d'intervalle à 120 bpm
+  avec le fil principal bloqué 320 ms en plein milieu.
 - **Installable** (écran d'accueil iOS/Android) et **utilisable hors-ligne**.
 - L'écran ne s'éteint pas pendant l'accordage (Screen Wake Lock, si le navigateur le
   gère).
@@ -49,6 +54,7 @@ caisse, dans un endroit calme. Fais un accord après coup pour vérifier à l'or
 | --- | --- |
 | `js/pitch.js` | détection de hauteur (module pur, testable sous Node) |
 | `js/tuner.js` | micro → filtres → analyseur, et note de référence |
+| `js/metronome.js` | métronome : ordonnanceur à anticipation sur l'horloge audio |
 | `js/notes.js` | conversions note ↔ fréquence, cents |
 | `js/tunings.js` | les accordages |
 | `js/app.js` | interface : cadran, cordes, réglages |

@@ -140,9 +140,25 @@ export function createTuner({ onFrame, onError } = {}) {
   }
 
   /**
-   * Joue la note de référence. Le micro est fermé le temps de l'écoute : c'est
-   * ce qui permet à iOS de sortir par le haut-parleur, et ça évite en plus que
-   * la note joué soit analysée comme si c'était la corde.
+   * Libère la session d'enregistrement pour jouer du son : sous iOS c'est la
+   * condition pour sortir par le haut-parleur et non par l'écouteur. Sert à la
+   * note de référence comme au métronome.
+   */
+  async function suspendForPlayback() {
+    if (running) closeMic();
+    setAudioSession('playback');
+    await audioContext().resume();
+  }
+
+  /** Rend la main au micro si l'utilisateur le voulait. */
+  async function resumeAfterPlayback() {
+    setAudioSession(micWanted ? 'play-and-record' : 'auto');
+    if (micWanted && !running) await openMic();
+  }
+
+  /**
+   * Joue la note de référence, micro fermé le temps de l'écoute — ce qui évite
+   * en prime que la note jouée soit analysée comme si c'était la corde.
    */
   async function playTone(freq) {
     const ac = audioContext();
@@ -156,9 +172,7 @@ export function createTuner({ onFrame, onError } = {}) {
       return;
     }
 
-    if (running) closeMic();
-    setAudioSession('playback');
-    await ac.resume();
+    await suspendForPlayback();
 
     const t = ac.currentTime;
     const gain = ac.createGain();
@@ -193,8 +207,7 @@ export function createTuner({ onFrame, onError } = {}) {
       oscs.forEach((osc) => osc.stop(t + 0.12));
       setTimeout(() => gain.disconnect(), 250);
     }
-    setAudioSession(micWanted ? 'play-and-record' : 'auto');
-    if (micWanted && !running) await openMic();
+    await resumeAfterPlayback();
   }
 
   return {
@@ -202,6 +215,9 @@ export function createTuner({ onFrame, onError } = {}) {
     stop,
     playTone,
     stopTone,
+    context: audioContext,
+    suspendForPlayback,
+    resumeAfterPlayback,
     isRunning: () => running,
     isMicOn: () => micWanted,
     isTonePlaying: () => tone !== null,
